@@ -1,0 +1,15 @@
+*.pyc
+*.geany
+*.nja
+*.vd
+*.csv
+*.xls
+*.xlsx
+*.reg
+__pycache__
+.idea
+.DS_Store
+.vs_code
+.vs
+.vs_code
+*.bin
