@@ -1,5 +1,8 @@
 import requests
 from urllib.parse import urlparse, parse_qs
+from urllib3 import disable_warnings
+from urllib3.exceptions import InsecureRequestWarning
+disable_warnings(InsecureRequestWarning)
 
 class web_client_request_types(object):
     GET = 1
@@ -11,13 +14,13 @@ def get_param_names(url: str) -> list:
 
 def build_params(url: str, url_params: dict) -> str:
     """ Naive function to blindly update url params, assuming param values to update are named <param> and have corresponding value in url_params """
-    for key, value in url_params:
+    for key, value in url_params.items():
         url = url.replace('<%s>' % key,  str(value))
 
     return url
 
-def request(url: str, request_type: web_client_request_types = web_client_request_types.GET,
-            session=None, overwrite_session_params=False, url_params: dict=None, proxies=None, headers=None, cookies=None, verify=False, _json=None) -> requests.Response:
+def request(url: str, request_type: int = web_client_request_types.GET,
+            session=None, overwrite_session_params=False, url_params: dict=None, proxies=None, headers=None, cookies=None, verify=False, _json=None, timeout=320) -> requests.Response:
 
     if url_params is not None:
         url = build_params(
@@ -34,19 +37,25 @@ def request(url: str, request_type: web_client_request_types = web_client_reques
         raise Exception('Unsupported request type id: %s' % str(request_type))
 
     if session is None:
-        return request_fun(url=url, proxies=proxies, cookies=cookies, headers=headers, verify=verify, json=_json)
+        return request_fun(url=url, proxies=proxies, cookies=cookies, headers=headers, verify=verify, json=_json, timeout=timeout)
     else:
         if overwrite_session_params:
-            return request_fun(url=url, proxies=proxies, cookies=cookies, headers=headers, verify=verify, json=_json)
+            return request_fun(url=url, proxies=proxies, cookies=cookies, headers=headers, verify=verify, json=_json, timeout=timeout)
         else:
-            return request_fun(url=url, verify=verify, json=_json)
+            return request_fun(url=url, verify=verify, json=_json, timeout=timeout)
 
     return None
 
-TestMode = True
+TestMode = False
 if TestMode:
 
     print(build_params(
-        url='https://files.center/<collection_id>?limit=<limit>',
+        url='https://example.com/<collection_id>?limit=<limit>',
+        url_params={'collection_id': '667', 'limit': 100},
+    ))
+
+    print(request(
+        request_type=web_client_request_types.GET,
+        url='https://example.com/<collection_id>?limit=<limit>',
         url_params={'collection_id': '667', 'limit': 100},
     ))
