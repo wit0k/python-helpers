@@ -84,7 +84,7 @@ def build_time_frame(s_from, s_to = None, expand=False, close_time_frame=True, f
     return _time_frame
 
 
-TestMode = True
+TestMode = False
 if TestMode:
     print(build_time_frame('2025-02-07T12:22:02'))
     print(build_time_frame('2025-02-07T12:22:02', expand=True))
