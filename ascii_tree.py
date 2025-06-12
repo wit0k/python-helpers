@@ -1,4 +1,9 @@
 import collections.abc
+from itertools import count
+import re
+import json
+import pandas as pd
+from io import StringIO
 
 def dict_to_ascii_tree(data: dict, prefix: str = "", level: int = 0) -> str:
     """
@@ -78,104 +83,136 @@ def dict_to_ascii_tree(data: dict, prefix: str = "", level: int = 0) -> str:
 
     return "\n".join(filter(None, output_lines))
 
-def dict_to_ascii_tree_old(data, prefix="", is_last_sibling_group=True, level=0):
+def str_path_to_nested_dict(tree_path: str, last_key_value=None, key_fn_pattern:str=r'(::\[(.*)\])$') -> dict:
     """
-    Generates a visually precise ASCII art representation of a nested dictionary.
+    Creates a nested dictionary from a slash-separated path string.
 
     Args:
-        data: The dictionary to represent.
-        prefix: The string prefix for drawing lines (internal use).
-        is_last_sibling_group: Boolean indicating if the current node is the last
-                               in its parent's item list (internal use).
-        level: The current nesting depth (internal use).
+        tree_path: The input path string (e.g., '/a/b/c').
+        value: The value to set at the end of the path. Defaults to an empty dict.
 
     Returns:
-        A string containing the ASCII art representation of the dictionary.
+        A nested dictionary representing the path.
     """
-    output = []
-    items = list(data.items())
-    # pointers determine the connector type (e.g., ├── or └──) for each item
-    pointers = ["├── "] * (len(items) - 1) + ["└── "] if items else []
+    if last_key_value is None: value = {}
+    if tree_path is None: raise Exception('Cannot be None!')
 
-    for i, (key, value) in enumerate(items):
-        connector_str = pointers[i]  # The full connector string like "├── " or "└── "
-        connector_char = connector_str[0]  # The first char like '├' or '└'
+    if not tree_path or tree_path == '/':
+        return {}
 
-        if key == '':
-            pass
+    # Split the path into keys, filtering out empty strings from leading/trailing slashes
+    keys = [key for key in tree_path.split('/') if key]
 
-        is_current_node_last = (i == len(items) - 1)
+    result = {}
+    current_level = result
 
-        if isinstance(value, dict) and value:  # Node is a parent (a non-empty dictionary)
-            node_text = f" {key} "
-            max_child_key_len = 0
-            if value:  # Check again, as value might be an empty dict
-                max_child_key_len = max(len(str(k)) for k in value.keys())
+    # Iterate through keys to build the nested structure
+    for i, key in enumerate(keys):
 
-            current_node_width = len(node_text)
-            # Box width ensures space for text and some alignment for children visual cues
-            box_content_width = max(current_node_width,
-                                    max_child_key_len + 2 if max_child_key_len > 0 else current_node_width)
-            # Total box width for string formatting (excluding prefix and connector char for non-roots)
-            # For ljust, it's content area. Top/bottom lines use box_content_width directly for dashes.
-            # The -1 for ljust comes from space + text + space = content_width, text fills (content_width - 2)
-            # So ljust should be on node_text not box_width
-            # Effective content area for text: box_content_width - 2 (for spaces)
-            # Let's define box_drawing_width = box_content_width + 2 for padding " text "
-
-            # Simplified box_width for drawing dashes and ljust padding
-            # The number of dashes needed. +2 for the spaces around node_text
-            actual_box_inner_width = len(node_text)
-            # Parent box width needs to be at least its text, or accommodate children signals
-            min_width_for_children_signal = 0
-            if value:  # If it has children
-                # This heuristic tries to make parent box look reasonable for children
-                # A bit of trial and error might be needed for perfect aesthetics in all cases
-                min_width_for_children_signal = max(len(str(k)) for k in value.keys()) + 2 if value else 0
-
-            # Overall width for the content part of the box (between '│' and '│' or '┌'/'└' and '┐'/'┘')
-            # This includes the spaces padding the text
-            render_box_content_width = max(len(node_text), min_width_for_children_signal)
-
-            if level == 0 and i == 0:  # Root node treatment
-                output.append(prefix + "┌─" + "─" * render_box_content_width + "─┐")
-                output.append(prefix + "│ " + node_text.ljust(render_box_content_width) + " │")
-                output.append(prefix + "└─" + "─" * render_box_content_width + "─┘")
-            else:  # Non-root parent nodes
-                output.append(prefix + connector_char + "─" + "─" * render_box_content_width + "─┐")
-                output.append(prefix + connector_char + " " + node_text.ljust(render_box_content_width) + " │")
-                output.append(prefix + connector_char + "─" + "─" * render_box_content_width + "─┘")
-
-            # Extension for children's prefix
-            # If current node is "├──", its children's prefix needs "│   "
-            # If current node is "└──", its children's prefix needs "    "
-            extension = "│   " if connector_char == "├" else "    "
-            output.append(dict_to_ascii_tree_old(value, prefix + extension, is_current_node_last, level + 1))
-
-        else:  # Node is a leaf (value is not a dict or is an empty dict)
-            leaf_text = f" {key}: {value} "
-            render_leaf_box_content_width = len(leaf_text)
-
-            if key == '' and isinstance(value, list):
-                render_leaf_box_content_width = max([len(f" {key}  {s}    ") for s in value])
-                output.append(prefix + connector_char + "─" + "─" * render_leaf_box_content_width + "─┐")
-                for s in value:
-                    leaf_text = f" {key}  {s} "
-                    output.append(prefix + connector_char + " " + leaf_text.ljust(render_leaf_box_content_width) + " │")
-                output.append(prefix + connector_char + "─" + "─" * render_leaf_box_content_width + "─┘")
+        if key_fn_pattern is not None:
+            fn_name_match = re.search(key_fn_pattern, key, re.IGNORECASE)
+            if fn_name_match:
+                fn_name = fn_name_match.group(2)
+                fn_name_invocation = fn_name_match.group(1)
+                key = key.replace(fn_name_invocation, '')
             else:
-                if level == 0 and i == 0:  # Root leaf node treatment
-                    output.append(prefix + "┌─" + "─" * render_leaf_box_content_width + "─┐")
-                    output.append(prefix + "│ " + leaf_text.ljust(render_leaf_box_content_width) + " │")
-                    output.append(prefix + "└─" + "─" * render_leaf_box_content_width + "─┘")
-                else:  # Non-root leaf nodes
-                    output.append(prefix + connector_char + "─" + "─" * render_leaf_box_content_width + "─┐")
-                    output.append(prefix + connector_char + " " + leaf_text.ljust(render_leaf_box_content_width) + " │")
-                    output.append(prefix + connector_char + "─" + "─" * render_leaf_box_content_width + "─┘")
+                fn_name = None
 
-    return "\n".join(line for line in output if line.strip() or "\n" in line)
+        if i == len(keys) - 1:
+            # Last key, assign the final value
+            current_level[key] = last_key_value
+        else:
+            # Create a new dictionary for the next level
+            current_level[key] = {}
+            # Move down to the next level
+            current_level = current_level[key]
+
+    return result
+
+def dataframe_to_nested_dict(df, template: dict) -> dict:
+    """
+    Dynamically creates a nested dictionary from a DataFrame based on a template.
+
+    The template defines the hierarchy for grouping. The keys of the template
+    should correspond to column names in the DataFrame. The recursion stops when
+    it encounters a final value string (which implies listing the values of that column)
+    or a dictionary containing an 'agg' key.
+
+    The 'agg' dictionary specifies the aggregation to perform:
+    - 'agg': The aggregation function name (e.g., 'list', 'unique', 'count', 'sum', 'first').
+    - 'values': The column to perform the aggregation on (not required for 'count').
+
+    Args:
+        df (pd.DataFrame): The input pandas DataFrame.
+        template (dict): A nested dictionary that defines the output structure.
+
+    Returns:
+        dict: The formatted nested dictionary.
+    """
+
+    def recursive_builder(current_df: pd.DataFrame, current_template: dict or str) -> dict:
+        # Base Case 1: The template is a string, implying a simple list aggregation.
+        if isinstance(current_template, str):
+            return current_df[current_template].tolist()
+
+        # Base Case 2: The template is a dictionary specifying an aggregation.
+        if 'agg' in current_template:
+            agg_func = current_template['agg']
+            column = current_template.get('values')
+
+            if agg_func == 'count':
+                return len(current_df)
+
+            if not column:
+                raise ValueError(f"A 'values' key is required for '{agg_func}' aggregation.")
+
+            if agg_func == 'list':
+                return current_df[column].tolist()
+            elif agg_func == 'unique':
+                return current_df[column].unique().tolist()
+            elif agg_func == 'first':
+                return current_df[column].iloc[0] if not current_df.empty else None
+            elif agg_func == 'sum':
+                return current_df[column].sum()
+            else:
+                raise ValueError(f"Unsupported aggregation function: '{agg_func}'")
+
+        # Recursive Step: The template is a dictionary for grouping.
+        group_by_column = list(current_template.keys())[0]
+        next_template = current_template[group_by_column]
+
+        output_dict = {}
+        grouped = current_df.groupby(group_by_column)
+
+        for group_name, group_df in grouped:
+            output_dict[group_name] = recursive_builder(group_df, next_template)
+
+        return output_dict
+
+    return recursive_builder(df, template)
+
 
 """"
+#Examples:
+
+##str_path_to_nested_dict:
+
+print(json.dumps(str_path_to_nested_dict(tree_path='/a/b/c::[get_day]/d', last_key_value={}), indent=4, sort_keys=True))
+print(json.dumps(str_path_to_nested_dict(tree_path='/a/b/c/d', last_key_value={}), indent=4, sort_keys=True))
+
+# Gives:
+{
+    "a": {
+        "b": {
+            "c": {
+                "d": {}
+            }
+        }
+    }
+}
+
+## dict_to_ascii_tree:
+
 example_dict = {
     'A': {
         'B': {
@@ -194,7 +231,6 @@ example_dict = {
 }
 
 print(dict_to_ascii_tree(example_dict))
-# print(dict_to_ascii_tree_old(example_dict))
 
 # Gives:
 ┌─────┐
@@ -213,5 +249,63 @@ print(dict_to_ascii_tree(example_dict))
             └────────────────────────────┐
             │   - XXXXXXXXXYYYYYYYYY     │
             └────────────────────────────┘
+            
+## dataframe_to_nested_dict:
 
+csv_data = \"""collection_date,bucket_id,fruit_color,fruit_type,quantity
+2025-06-07,B1,Red,Apple,10
+2025-06-07,B1,Green,Apple,5
+2025-06-07,B1,Yellow,Banana,12
+2025-06-07,B2,Red,Strawberry,30
+2025-06-07,B2,Red,Apple,8
+2025-06-08,B1,Green,Grape,25
+2025-06-08,B2,Purple,Grape,20
+2025-06-08,B1,Yellow,Banana,15
+\"""
+
+df = pd.read_csv(StringIO(csv_data))
+
+template = {
+    'fruit_color': {
+        'fruit_type': {
+            'bucket_id': {
+                'agg': 'count'
+            }
+        }
+    }
+}
+
+print(json.dumps(dataframe_to_nested_dict(df, template), indent=4, sort_keys=True))
+
+# Gives:
+
+{
+    "Green": {
+        "Apple": {
+            "B1": 1
+        },
+        "Grape": {
+            "B1": 1
+        }
+    },
+    "Purple": {
+        "Grape": {
+            "B2": 1
+        }
+    },
+    "Red": {
+        "Apple": {
+            "B1": 1,
+            "B2": 1
+        },
+        "Strawberry": {
+            "B2": 1
+        }
+    },
+    "Yellow": {
+        "Banana": {
+            "B1": 2
+        }
+    }
+}
 """
